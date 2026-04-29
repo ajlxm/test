@@ -1,0 +1,611 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>航空报文解析器</title>
+  <style>
+    :root {
+      color-scheme: light dark;
+      --bg: #0b1020;
+      --card: #131a2b;
+      --text: #e8edf8;
+      --muted: #9fb0d3;
+      --primary: #4f8cff;
+      --ok: #20b26c;
+      --warn: #f5a524;
+      --err: #e5484d;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      font-family: "Segoe UI", "PingFang SC", "Microsoft YaHei", Arial, sans-serif;
+      background: linear-gradient(135deg, #0b1020, #111937 35%, #172552);
+      color: var(--text);
+      min-height: 100vh;
+      padding: 24px;
+    }
+    .container {
+      max-width: 980px;
+      margin: 0 auto;
+      display: grid;
+      gap: 16px;
+    }
+    .card {
+      background: rgba(19, 26, 43, 0.92);
+      border: 1px solid rgba(159, 176, 211, 0.2);
+      border-radius: 14px;
+      padding: 18px;
+      backdrop-filter: blur(3px);
+    }
+    h1 {
+      margin: 0;
+      font-size: 24px;
+    }
+    .desc {
+      margin-top: 8px;
+      color: var(--muted);
+      line-height: 1.6;
+    }
+    textarea, input, select {
+      width: 100%;
+      background: #0b1328;
+      color: var(--text);
+      border: 1px solid rgba(159, 176, 211, 0.35);
+      border-radius: 10px;
+      padding: 10px 12px;
+      font-size: 14px;
+    }
+    input, select { height: 42px; }
+    textarea {
+      width: 100%;
+      min-height: 170px;
+      resize: vertical;
+      padding: 12px;
+      font-family: Consolas, "Courier New", monospace;
+      font-size: 14px;
+      line-height: 1.5;
+    }
+    .row {
+      display: flex;
+      gap: 10px;
+      flex-wrap: wrap;
+      margin-top: 12px;
+    }
+    button {
+      border: none;
+      border-radius: 10px;
+      padding: 10px 14px;
+      font-size: 14px;
+      cursor: pointer;
+      color: #fff;
+      background: var(--primary);
+    }
+    button.secondary {
+      background: #4a5b86;
+    }
+    .status {
+      margin-top: 10px;
+      font-size: 13px;
+      color: var(--muted);
+    }
+    .status.ok { color: var(--ok); }
+    .status.warn { color: var(--warn); }
+    .status.err { color: var(--err); }
+    .result-text {
+      margin-top: 10px;
+      padding: 12px;
+      border-radius: 10px;
+      border: 1px solid rgba(159, 176, 211, 0.25);
+      background: #0b1328;
+      line-height: 1.8;
+      white-space: pre-wrap;
+      word-break: break-word;
+      font-size: 14px;
+    }
+    .pill {
+      display: inline-block;
+      padding: 4px 10px;
+      border-radius: 999px;
+      font-size: 12px;
+      background: rgba(79, 140, 255, 0.2);
+      border: 1px solid rgba(79, 140, 255, 0.45);
+      color: #d8e6ff;
+      margin-right: 8px;
+    }
+    .mono { font-family: Consolas, "Courier New", monospace; }
+    .grid {
+      display: grid;
+      gap: 10px;
+      grid-template-columns: 1fr 210px;
+    }
+    @media (max-width: 760px) {
+      .grid { grid-template-columns: 1fr; }
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <section class="card">
+      <h1>航空报文解析器</h1>
+      <div class="desc">
+        支持常见 ICAO 报文：<span class="pill">METAR/SPECI</span><span class="pill">TAF</span><span class="pill">FPL</span>。
+        将原始报文粘贴到下方后点击“解析报文”。
+      </div>
+    </section>
+
+    <section class="card">
+      <div class="desc" style="margin-top:0;">ICAO 四字码获取报文（数据取自中央气象台 zc.cma.gov.cn 等国内公开页面；若直连被浏览器拦截会自动尝试跨域镜像）。</div>
+      <div class="grid" style="margin-top:10px;">
+        <input id="icaoInput" class="mono" placeholder="输入机场四字码，例如 ZLYA / ZBAA" maxlength="4" />
+        <select id="sourceMode">
+          <option value="CMA_FIRST">优先中央气象台（多页依次尝试）</option>
+          <option value="MIRROR_FIRST">优先镜像页（再试中央气象台）</option>
+          <option value="CMA_ONLY">仅中央气象台站点</option>
+        </select>
+      </div>
+      <div class="row">
+        <button id="fetchBtn">获取报文</button>
+      </div>
+
+      <textarea id="inputMessage" placeholder="例如：&#10;METAR ZBAA 160200Z 02004MPS 9999 FEW020 11/04 Q1022 NOSIG="></textarea>
+      <div class="row">
+        <button id="parseBtn">解析报文</button>
+        <button id="sampleBtn" class="secondary">填充示例</button>
+        <button id="clearBtn" class="secondary">清空</button>
+      </div>
+      <div id="status" class="status">等待输入报文...</div>
+    </section>
+
+    <section class="card">
+      <h2 style="margin-top:0;font-size:20px;">解析结果</h2>
+      <div id="typeTag" class="desc">报文类型：未识别</div>
+      <div id="resultText" class="result-text mono">等待解析...</div>
+    </section>
+  </div>
+
+  <script>
+    const icaoInputEl = document.getElementById("icaoInput");
+    const sourceModeEl = document.getElementById("sourceMode");
+    const fetchBtnEl = document.getElementById("fetchBtn");
+    const inputEl = document.getElementById("inputMessage");
+    const statusEl = document.getElementById("status");
+    const typeTagEl = document.getElementById("typeTag");
+    const resultTextEl = document.getElementById("resultText");
+
+    const sampleMessages = [
+      "METAR ZBAA 160200Z 02004MPS 9999 FEW020 11/04 Q1022 NOSIG=",
+      "TAF ZSPD 160500Z 1606/1712 04005MPS 8000 SCT020 BKN060 TEMPO 1610/1614 4000 SHRA BKN015CB=",
+      "(FPL-CCA123-IS -A320/M-SDE2E3FGHIRWY/LB1 -ZBAA0730 -N0450F330 DCT VYK DCT -ZSPD0135 ZGGG -PBN/A1B1C1D1O1S2 DOF/260416 REG/B1234 EET/ZSHA0045 RMK/TEST)"
+    ];
+
+    function setStatus(text, type = "") {
+      statusEl.textContent = text;
+      statusEl.className = "status" + (type ? " " + type : "");
+    }
+
+    function normalizeMessage(raw) {
+      return raw
+        .replace(/\r/g, " ")
+        .replace(/\n/g, " ")
+        .replace(/\s+/g, " ")
+        .trim()
+        .replace(/=$/, "");
+    }
+
+    function isIcaoCode(text) {
+      return /^[A-Z]{4}$/.test((text || "").trim().toUpperCase());
+    }
+
+    async function fetchWithTimeout(url, timeoutMs = 10000) {
+      const controller = new AbortController();
+      const timer = setTimeout(() => controller.abort(), timeoutMs);
+      try {
+        return await fetch(url, { signal: controller.signal });
+      } finally {
+        clearTimeout(timer);
+      }
+    }
+
+    function parseJsonPayloadToText(rawText) {
+      const text = (rawText || "").trim();
+      if (!text || !/^[\[{]/.test(text)) return "";
+      try {
+        const obj = JSON.parse(text);
+        const pick = (item) => {
+          if (!item || typeof item !== "object") return "";
+          return item.rawOb || item.raw_text || item.rawText || item.raw || item.metar || item.taf || "";
+        };
+        if (Array.isArray(obj)) {
+          return obj.map(pick).filter(Boolean).join("\n");
+        }
+        return pick(obj);
+      } catch (_err) {
+        return "";
+      }
+    }
+
+    async function fetchSourceText(url) {
+      const attempts = [url];
+      if (!/allorigins\.win/i.test(url)) {
+        attempts.push(`https://api.allorigins.win/raw?url=${encodeURIComponent(url)}`);
+      }
+      if (!/r\.jina\.ai/i.test(url) && /^https?:\/\//i.test(url)) {
+        attempts.push(`https://r.jina.ai/http://${url.replace(/^https?:\/\//i, "")}`);
+      }
+
+      let lastError = "请求失败";
+      for (const attemptUrl of attempts) {
+        try {
+          const resp = await fetchWithTimeout(attemptUrl, 12000);
+          if (!resp.ok) {
+            lastError = `HTTP ${resp.status}`;
+            continue;
+          }
+          const text = await resp.text();
+          if (!text || !text.trim()) {
+            lastError = "返回为空";
+            continue;
+          }
+          const parsedJsonText = parseJsonPayloadToText(text);
+          return {
+            ok: true,
+            text: parsedJsonText || text,
+            via: attemptUrl === url ? "直连" : "代理"
+          };
+        } catch (err) {
+          lastError = err && err.name === "AbortError" ? "请求超时" : "网络失败";
+        }
+      }
+      return { ok: false, text: "", via: "", error: lastError };
+    }
+
+    function buildSourceTargets(code, mode) {
+      /** 国内气象数据源：中央气象台（zc.cma.gov.cn）为主；镜像仅作页面可访问性补充，数据仍来自国内公开页面。 */
+      const cmaTargets = [
+        { name: "中央气象台(按四字码)", url: `https://zc.cma.gov.cn/?icao=${encodeURIComponent(code)}` },
+        { name: "中央气象台首页", url: "https://zc.cma.gov.cn/" }
+      ];
+      const mirrorTargets = [
+        { name: "中央气象台(按四字码·镜像)", url: `https://r.jina.ai/http://zc.cma.gov.cn/?icao=${encodeURIComponent(code)}` },
+        { name: "中央气象台首页·镜像", url: "https://r.jina.ai/http://zc.cma.gov.cn/" }
+      ];
+      if (mode === "CMA_ONLY") return cmaTargets;
+      if (mode === "MIRROR_FIRST") return [...mirrorTargets, ...cmaTargets];
+      return [...cmaTargets, ...mirrorTargets];
+    }
+
+    function extractRawCandidates(text, code) {
+      const normalized = normalizeMessage(text || "");
+      if (!normalized) return [];
+      const icao = (code || "").toUpperCase();
+      const patterns = [
+        new RegExp(`(?:METAR|SPECI)\\s+${icao}\\s+\\d{6}Z[^=\\n\\r]*=?`, "ig"),
+        new RegExp(`TAF(?:\\s+(?:AMD|COR))?\\s+${icao}\\s+\\d{6}Z[^=\\n\\r]*=?`, "ig"),
+        new RegExp(`(?:METAR|SPECI)\\s+[A-Z]{4}\\s+\\d{6}Z[^=\\n\\r]*=?`, "ig"),
+        new RegExp(`TAF(?:\\s+(?:AMD|COR))?\\s+[A-Z]{4}\\s+\\d{6}Z[^=\\n\\r]*=?`, "ig")
+      ];
+      const result = [];
+      for (const pattern of patterns) {
+        const matches = normalized.match(pattern) || [];
+        matches.forEach((m) => {
+          const msg = normalizeMessage(m);
+          if (!msg) return;
+          if (!msg.includes(` ${icao} `) && !msg.startsWith(`TAF ${icao} `) && !msg.startsWith(`METAR ${icao} `) && !msg.startsWith(`SPECI ${icao} `)) return;
+          if (!result.includes(msg)) result.push(msg);
+        });
+      }
+      return result;
+    }
+
+    async function fetchMessageByIcao() {
+      const code = (icaoInputEl.value || "").trim().toUpperCase();
+      if (!isIcaoCode(code)) {
+        setStatus("请输入有效四字码（4位字母，例如 ZLYA）。", "warn");
+        return;
+      }
+      icaoInputEl.value = code;
+      setStatus(`正在查询 ${code} 报文...`);
+      const targets = buildSourceTargets(code, sourceModeEl.value || "CMA_FIRST");
+      let lastErr = "";
+      const errorNotes = [];
+      for (const target of targets) {
+        const fetched = await fetchSourceText(target.url);
+        if (!fetched.ok) {
+          lastErr = `${target.name} ${fetched.error || "请求失败"}`;
+          errorNotes.push(lastErr);
+          continue;
+        }
+        const found = extractRawCandidates(fetched.text, code);
+        if (found.length) {
+          inputEl.value = found[0];
+          setStatus(`已从 ${target.name}(${fetched.via}) 获取到 ${found.length} 条报文。`, "ok");
+          parseMessage();
+          return;
+        }
+        lastErr = `${target.name} 未匹配到 ${code} 报文`;
+        errorNotes.push(lastErr);
+      }
+      const detail = errorNotes.length ? `；详情：${errorNotes.slice(0, 3).join(" | ")}` : "";
+      setStatus(`未获取到 ${code} 报文：${lastErr || "数据源无可用数据"}${detail}`, "warn");
+    }
+
+    function detectType(msg) {
+      if (/^(METAR|SPECI)\b/i.test(msg)) return "METAR";
+      if (/^TAF\b/i.test(msg)) return "TAF";
+      if (/\(FPL-/i.test(msg) || /^FPL-/i.test(msg)) return "FPL";
+      return "UNKNOWN";
+    }
+
+    function parseMetar(msg) {
+      const parts = msg.split(" ");
+      const data = {};
+      data["报文类型"] = parts[0] || "";
+      data["机场 ICAO"] = parts[1] || "";
+      data["观测时间"] = parts[2] || "";
+
+      const wind = parts.find((p) => /^(\d{3}|VRB)\d{2,3}(G\d{2,3})?(MPS|KT)$/.test(p));
+      data["风"] = wind || "未找到";
+      const windVar = parts.find((p) => /^\d{3}V\d{3}$/.test(p));
+      data["风向变化"] = windVar || "无";
+
+      const vis = parts.find((p) => /^(\d{4}|CAVOK)$/.test(p));
+      data["能见度"] = vis || "未找到";
+
+      const clouds = parts.filter((p) => /^(FEW|SCT|BKN|OVC|NSC|NCD)\d{3}/.test(p));
+      data["云况"] = clouds.length ? clouds.join(" / ") : "未找到";
+
+      const tempDew = parts.find((p) => /^M?\d{2}\/M?\d{2}$/.test(p));
+      data["温度/露点"] = tempDew || "未找到";
+
+      const qnh = parts.find((p) => /^Q\d{4}$/.test(p) || /^A\d{4}$/.test(p));
+      data["气压"] = qnh || "未找到";
+
+      const weather = parts.find((p) => /^[-+]?([A-Z]{2,})$/.test(p) && /(RA|SN|TS|FG|BR|HZ|SH|DZ)/.test(p));
+      data["天气"] = weather || "未找到";
+
+      const trend = parts.find((p) => /^(NOSIG|BECMG|TEMPO)$/.test(p));
+      data["趋势"] = trend || "无";
+      return data;
+    }
+
+    function parseTaf(msg) {
+      const parts = msg.split(" ");
+      const data = {};
+      data["报文类型"] = parts[0] || "";
+      data["机场 ICAO"] = parts[1] || "";
+      data["发布时间"] = parts[2] || "";
+      data["有效时段"] = parts[3] || "";
+
+      const wind = parts.find((p) => /^(\d{3}|VRB)\d{2,3}(G\d{2,3})?(MPS|KT)$/.test(p));
+      data["主导风"] = wind || "未找到";
+
+      const vis = parts.find((p) => /^(\d{4}|CAVOK)$/.test(p));
+      data["主导能见度"] = vis || "未找到";
+
+      const weather = parts.filter((p) => /^[-+]?([A-Z]{2,})$/.test(p) && /(RA|SN|TS|FG|BR|HZ|SH|DZ)/.test(p));
+      data["重要天气"] = weather.length ? weather.join(" / ") : "无";
+
+      const segments = [];
+      for (let i = 0; i < parts.length; i += 1) {
+        if (/^(TEMPO|BECMG|FM\d{6}|PROB\d{2})$/.test(parts[i])) {
+          segments.push(parts[i] + (parts[i + 1] && /^\d{4}\/\d{4}$/.test(parts[i + 1]) ? " " + parts[i + 1] : ""));
+        }
+      }
+      data["变化组"] = segments.length ? segments.join(" ; ") : "无";
+      return data;
+    }
+
+    function parseFpl(msg) {
+      const clean = msg.replace(/[()]/g, "");
+      const chunks = clean.split("-").map((x) => x.trim()).filter(Boolean);
+      const data = {};
+
+      data["报文头"] = chunks[0] || "FPL";
+      data["航班号"] = chunks[1] || "未找到";
+      data["机型/尾流"] = chunks[3] || "未找到";
+      data["起飞机场+时间"] = chunks[4] || "未找到";
+      data["航路信息"] = chunks[5] || "未找到";
+      data["目的地/备降"] = chunks[6] || "未找到";
+
+      const misc = chunks.slice(7).join(" - ");
+      data["补充信息"] = misc || "无";
+      return data;
+    }
+
+    function parseSignedInt(text) {
+      if (!text) return NaN;
+      return parseInt(text.replace("M", "-"), 10);
+    }
+
+    function calcHumidity(temp, dew) {
+      if (Number.isNaN(temp) || Number.isNaN(dew)) return null;
+      const a = 17.625;
+      const b = 243.04;
+      const es = Math.exp((a * temp) / (b + temp));
+      const e = Math.exp((a * dew) / (b + dew));
+      const rh = Math.max(0, Math.min(100, Math.round((e / es) * 100)));
+      return rh;
+    }
+
+    function decodeWeather(token) {
+      if (!token || token === "未找到") return "未识别";
+      const intensity = token.startsWith("-") ? "小" : token.startsWith("+") ? "强" : "";
+      const base = token.replace(/^[-+]/, "");
+      const map = {
+        SHRA: "阵雨",
+        RA: "雨",
+        DZ: "毛毛雨",
+        SN: "雪",
+        TS: "雷暴",
+        BR: "轻雾",
+        FG: "雾",
+        HZ: "霾"
+      };
+      return intensity + (map[base] || base);
+    }
+
+    function decodeWind(token, variableToken = "") {
+      if (!token || token === "未找到") return "未识别";
+      const m = token.match(/^(\d{3}|VRB)(\d{2,3})(G\d{2,3})?(MPS|KT)$/);
+      if (!m) return token;
+      const gustRaw = m[3] ? parseInt(m[3].slice(1), 10) : null;
+      const dirText = m[1] === "VRB" ? "不稳定" : m[1] + "°";
+      const speed = parseInt(m[2], 10);
+      if (speed === 0) return "静风 0 米/秒 (0kt)";
+
+      let speedMs = "";
+      let gustMs = "";
+      let speedKt = "";
+      let gustKt = "";
+      if (m[4] === "MPS") {
+        speedMs = String(speed);
+        speedKt = (speed / 0.514444).toFixed(1).replace(/\.0$/, "");
+        if (gustRaw !== null) {
+          gustMs = String(gustRaw);
+          gustKt = (gustRaw / 0.514444).toFixed(1).replace(/\.0$/, "");
+        }
+      } else {
+        speedMs = (speed * 0.514444).toFixed(1).replace(/\.0$/, "");
+        speedKt = String(speed);
+        if (gustRaw !== null) {
+          gustMs = (gustRaw * 0.514444).toFixed(1).replace(/\.0$/, "");
+          gustKt = String(gustRaw);
+        }
+      }
+
+      let windText = `${dirText} ${speedMs} 米/秒 (${speedKt}kt)`;
+      if (gustRaw !== null) windText += `，阵风 ${gustMs} 米/秒 (${gustKt}kt)`;
+
+      if (variableToken && /^\d{3}V\d{3}$/.test(variableToken)) {
+        const fromDir = variableToken.slice(0, 3);
+        const toDir = variableToken.slice(4, 7);
+        windText += `，风向在${fromDir}°到${toDir}°之间变化`;
+      }
+      return windText;
+    }
+
+    function decodeVisibility(token) {
+      if (!token || token === "未找到") return "未识别";
+      if (token === "CAVOK") return "10 公里以上";
+      return token + "米";
+    }
+
+    function decodeClouds(tokenText) {
+      if (!tokenText || tokenText === "未找到") return "未识别";
+      const codeMap = { FEW: "少云", SCT: "疏云", BKN: "多云", OVC: "阴天" };
+      const first = tokenText.split(" / ")[0];
+      const m = first.match(/^(FEW|SCT|BKN|OVC)(\d{3})/);
+      if (!m) return tokenText;
+      const h = parseInt(m[2], 10) * 30;
+      return `${codeMap[m[1]] || m[1]}(高${h}米)`;
+    }
+
+    function decodePressure(token) {
+      if (!token || token === "未找到") return "未识别";
+      if (/^Q\d{4}$/.test(token)) return `${token.slice(1)} hPa`;
+      if (/^A\d{4}$/.test(token)) {
+        const inHg = parseInt(token.slice(1), 10) / 100;
+        const hpa = Math.round(inHg * 33.8639);
+        return `${hpa} hPa`;
+      }
+      return token;
+    }
+
+    function decodeTime(token) {
+      if (!token || !/^\d{6}Z$/.test(token)) return token || "未识别";
+      return `${token.slice(0, 2)}日 ${token.slice(2, 4)}:${token.slice(4, 6)} UTC`;
+    }
+
+    function formatResult(type, resultObj) {
+      if (type === "METAR") {
+        const tempDew = (resultObj["温度/露点"] || "").split("/");
+        const temp = parseSignedInt(tempDew[0]);
+        const dew = parseSignedInt(tempDew[1]);
+        const rh = calcHumidity(temp, dew);
+        const tempLine = Number.isNaN(temp) || Number.isNaN(dew)
+          ? "气温: 未识别"
+          : `气温:${temp}℃,露点${dew}℃,相对湿度${rh === null ? "--" : rh}%`;
+
+        return [
+          `发布时间:${decodeTime(resultObj["观测时间"])}`,
+          `天气: ${decodeWeather(resultObj["天气"])}`,
+          `风向风速:${decodeWind(resultObj["风"], resultObj["风向变化"])}`,
+          `能见度:${decodeVisibility(resultObj["能见度"])}`,
+          `云层: ${decodeClouds(resultObj["云况"])}`,
+          tempLine,
+          `气压:${decodePressure(resultObj["气压"])}`
+        ].join("\n");
+      }
+      return Object.entries(resultObj)
+        .map(([k, v]) => `${k}: ${v}`)
+        .join("\n");
+    }
+
+    function renderResult(type, resultObj) {
+      resultTextEl.textContent = formatResult(type, resultObj);
+    }
+
+    function parseMessage() {
+      const raw = inputEl.value || "";
+      if (!raw.trim()) {
+        setStatus("请先输入航空报文内容。", "warn");
+        typeTagEl.textContent = "报文类型：未识别";
+        resultTextEl.textContent = "等待解析...";
+        return;
+      }
+
+      const message = normalizeMessage(raw);
+      const type = detectType(message);
+      typeTagEl.textContent = "报文类型：" + type;
+
+      try {
+        let result;
+        if (type === "METAR") {
+          result = parseMetar(message);
+        } else if (type === "TAF") {
+          result = parseTaf(message);
+        } else if (type === "FPL") {
+          result = parseFpl(message);
+        } else {
+          result = {
+            "提示": "暂不支持该报文格式",
+            "原文": message
+          };
+          setStatus("解析完成，但当前类型尚未实现深度解析。", "warn");
+          renderResult(type, result);
+          return;
+        }
+
+        renderResult(type, result);
+        setStatus("解析成功。", "ok");
+      } catch (err) {
+        setStatus("解析失败：" + (err && err.message ? err.message : "未知错误"), "err");
+      }
+    }
+
+    fetchBtnEl.addEventListener("click", fetchMessageByIcao);
+    icaoInputEl.addEventListener("input", () => {
+      icaoInputEl.value = (icaoInputEl.value || "").toUpperCase().replace(/[^A-Z]/g, "").slice(0, 4);
+    });
+    icaoInputEl.addEventListener("keydown", (event) => {
+      if (event.key === "Enter" && !event.shiftKey && !event.ctrlKey && !event.altKey && !event.metaKey) {
+        event.preventDefault();
+        fetchMessageByIcao();
+      }
+    });
+    document.getElementById("parseBtn").addEventListener("click", parseMessage);
+    document.getElementById("sampleBtn").addEventListener("click", () => {
+      const random = sampleMessages[Math.floor(Math.random() * sampleMessages.length)];
+      inputEl.value = random;
+      parseMessage();
+    });
+    document.getElementById("clearBtn").addEventListener("click", () => {
+      inputEl.value = "";
+      resultTextEl.textContent = "等待解析...";
+      typeTagEl.textContent = "报文类型：未识别";
+      setStatus("已清空。");
+    });
+  </script>
+</body>
+</html>

@@ -1,0 +1,336 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>中文大写数字转换器</title>
+  <style>
+    :root {
+      color-scheme: light;
+      --bg: #f5f7fb;
+      --card: #ffffff;
+      --text: #1f2937;
+      --sub: #6b7280;
+      --primary: #2563eb;
+      --primary-hover: #1d4ed8;
+      --border: #d1d5db;
+      --ok: #0f766e;
+      --error: #dc2626;
+      --shadow: 0 10px 30px rgba(0, 0, 0, 0.08);
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    body {
+      margin: 0;
+      min-height: 100vh;
+      display: grid;
+      place-items: center;
+      background: linear-gradient(160deg, #eef2ff 0%, var(--bg) 100%);
+      font-family: "Microsoft YaHei", "PingFang SC", system-ui, sans-serif;
+      color: var(--text);
+      padding: 24px;
+    }
+
+    .card {
+      width: min(760px, 100%);
+      background: var(--card);
+      border-radius: 16px;
+      box-shadow: var(--shadow);
+      padding: 24px;
+    }
+
+    h1 {
+      margin: 0 0 8px;
+      font-size: 28px;
+      letter-spacing: 1px;
+    }
+
+    .desc {
+      margin: 0 0 20px;
+      color: var(--sub);
+      font-size: 14px;
+      line-height: 1.6;
+    }
+
+    .row {
+      display: flex;
+      gap: 10px;
+      flex-wrap: wrap;
+      margin-bottom: 12px;
+    }
+
+    input[type="text"] {
+      flex: 1;
+      min-width: 220px;
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      font-size: 16px;
+      padding: 12px 14px;
+      outline: none;
+      transition: border-color 0.2s, box-shadow 0.2s;
+    }
+
+    input[type="text"]:focus {
+      border-color: var(--primary);
+      box-shadow: 0 0 0 4px rgba(37, 99, 235, 0.15);
+    }
+
+    button {
+      border: 0;
+      border-radius: 10px;
+      background: var(--primary);
+      color: white;
+      padding: 12px 16px;
+      cursor: pointer;
+      font-size: 14px;
+      transition: background 0.2s;
+    }
+
+    button:hover {
+      background: var(--primary-hover);
+    }
+
+    button.secondary {
+      background: #4b5563;
+    }
+
+    button.secondary:hover {
+      background: #374151;
+    }
+
+    .quick-buttons {
+      margin: 10px 0 16px;
+    }
+
+    .quick-buttons button {
+      background: #e5e7eb;
+      color: #111827;
+      padding: 8px 12px;
+      font-size: 13px;
+    }
+
+    .quick-buttons button:hover {
+      background: #d1d5db;
+    }
+
+    .result {
+      margin-top: 10px;
+      border: 1px dashed #94a3b8;
+      background: #f8fafc;
+      border-radius: 12px;
+      padding: 14px;
+      min-height: 70px;
+    }
+
+    .label {
+      font-size: 12px;
+      color: var(--sub);
+      margin-bottom: 8px;
+    }
+
+    .value {
+      font-size: 22px;
+      line-height: 1.5;
+      word-break: break-all;
+    }
+
+    .error {
+      color: var(--error);
+      font-size: 14px;
+      margin-top: 8px;
+      min-height: 22px;
+    }
+
+    .success {
+      color: var(--ok);
+      font-size: 13px;
+      min-height: 20px;
+      margin-top: 6px;
+    }
+  </style>
+</head>
+<body>
+  <main class="card">
+    <h1>中文大写数字转换器</h1>
+    <p class="desc">
+      支持最多 16 位整数与 2 位小数，可用于金额大写（人民币风格）。
+      例如输入 <code>1234.56</code> 输出 <code>壹仟贰佰叁拾肆圆伍角陆分</code>。
+    </p>
+
+    <div class="row">
+      <input id="amountInput" type="text" placeholder="请输入数字，如 1001001.08" />
+      <button id="convertBtn">转换</button>
+      <button id="clearBtn" class="secondary">清空</button>
+    </div>
+
+    <div class="row quick-buttons">
+      <button data-demo="0">0</button>
+      <button data-demo="1001">1001</button>
+      <button data-demo="123456789.01">123456789.01</button>
+      <button data-demo="1001001.08">1001001.08</button>
+      <button data-demo="-2500.5">-2500.5</button>
+    </div>
+
+    <div class="result">
+      <div class="label">转换结果</div>
+      <div id="resultText" class="value">请先输入数字</div>
+    </div>
+
+    <div class="row" style="margin-top: 10px;">
+      <button id="copyBtn">复制结果</button>
+    </div>
+    <div id="errorText" class="error"></div>
+    <div id="successText" class="success"></div>
+  </main>
+
+  <script>
+    const inputEl = document.getElementById("amountInput");
+    const convertBtn = document.getElementById("convertBtn");
+    const clearBtn = document.getElementById("clearBtn");
+    const copyBtn = document.getElementById("copyBtn");
+    const resultTextEl = document.getElementById("resultText");
+    const errorTextEl = document.getElementById("errorText");
+    const successTextEl = document.getElementById("successText");
+
+    function toChineseUpperAmount(rawValue) {
+      const normalized = rawValue.trim().replace(/,/g, "");
+      if (!normalized) throw new Error("请输入数字");
+      if (!/^[+-]?(\d+(\.\d{1,2})?|\.\d{1,2})$/.test(normalized)) {
+        throw new Error("格式不正确：仅支持数字，最多两位小数");
+      }
+
+      const negative = normalized.startsWith("-");
+      const abs = normalized.replace(/^[+-]/, "");
+      let [intPart, decPart = ""] = abs.split(".");
+      intPart = intPart || "0";
+      decPart = (decPart + "00").slice(0, 2);
+
+      if (intPart.length > 16) {
+        throw new Error("整数部分过长：最多支持 16 位");
+      }
+
+      const digitMap = ["零", "壹", "贰", "叁", "肆", "伍", "陆", "柒", "捌", "玖"];
+      const sectionUnits = ["", "万", "亿", "兆"];
+      const innerUnits = ["仟", "佰", "拾", ""];
+
+      function sectionToChinese(section) {
+        const sec = section.padStart(4, "0");
+        let out = "";
+        let zeroFlag = false;
+
+        for (let i = 0; i < 4; i++) {
+          const n = Number(sec[i]);
+          if (n === 0) {
+            zeroFlag = out !== "";
+          } else {
+            if (zeroFlag && !out.endsWith("零")) out += "零";
+            out += digitMap[n] + innerUnits[i];
+            zeroFlag = false;
+          }
+        }
+        return out;
+      }
+
+      function integerToChinese(numStr) {
+        if (/^0+$/.test(numStr)) return "零";
+        const sections = [];
+        for (let end = numStr.length; end > 0; end -= 4) {
+          sections.unshift(numStr.slice(Math.max(0, end - 4), end));
+        }
+
+        let out = "";
+        let needZero = false;
+        for (let i = 0; i < sections.length; i++) {
+          const sec = sections[i];
+          const val = Number(sec);
+          const unit = sectionUnits[sections.length - 1 - i];
+
+          if (val === 0) {
+            needZero = out !== "";
+            continue;
+          }
+
+          const secText = sectionToChinese(sec);
+          if (needZero && !out.endsWith("零")) out += "零";
+
+          if (out && Number(sec) < 1000 && !out.endsWith("零")) {
+            out += "零";
+          }
+          out += secText + unit;
+          needZero = false;
+        }
+        return out.replace(/零+/g, "零").replace(/零$/g, "");
+      }
+
+      const hasIntegerValue = !/^0+$/.test(intPart);
+      const intText = integerToChinese(intPart) + "圆";
+      const jiao = Number(decPart[0]);
+      const fen = Number(decPart[1]);
+      let decText = "";
+
+      if (jiao === 0 && fen === 0) {
+        decText = "整";
+      } else {
+        if (jiao > 0) decText += digitMap[jiao] + "角";
+        if (fen > 0) {
+          if (jiao === 0 && hasIntegerValue) decText += "零";
+          decText += digitMap[fen] + "分";
+        }
+      }
+
+      return (negative ? "负" : "") + intText + decText;
+    }
+
+    function updateResult() {
+      errorTextEl.textContent = "";
+      successTextEl.textContent = "";
+      try {
+        const result = toChineseUpperAmount(inputEl.value);
+        resultTextEl.textContent = result;
+      } catch (err) {
+        resultTextEl.textContent = "请先输入数字";
+        errorTextEl.textContent = err.message || "转换失败";
+      }
+    }
+
+    convertBtn.addEventListener("click", updateResult);
+    clearBtn.addEventListener("click", () => {
+      inputEl.value = "";
+      resultTextEl.textContent = "请先输入数字";
+      errorTextEl.textContent = "";
+      successTextEl.textContent = "";
+      inputEl.focus();
+    });
+
+    copyBtn.addEventListener("click", async () => {
+      const text = resultTextEl.textContent;
+      if (!text || text === "请先输入数字") {
+        errorTextEl.textContent = "没有可复制的结果";
+        return;
+      }
+
+      try {
+        await navigator.clipboard.writeText(text);
+        errorTextEl.textContent = "";
+        successTextEl.textContent = "已复制到剪贴板";
+      } catch (_) {
+        errorTextEl.textContent = "复制失败：请检查浏览器是否允许剪贴板访问";
+      }
+    });
+
+    inputEl.addEventListener("keydown", (e) => {
+      if (e.key === "Enter") updateResult();
+    });
+
+    document.querySelectorAll("[data-demo]").forEach((btn) => {
+      btn.addEventListener("click", () => {
+        inputEl.value = btn.getAttribute("data-demo");
+        updateResult();
+      });
+    });
+  </script>
+</body>
+</html>
